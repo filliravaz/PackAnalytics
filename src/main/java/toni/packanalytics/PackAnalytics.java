@@ -66,6 +66,8 @@ public class PackAnalytics #if FABRIC implements ModInitializer #endif
     public static final String ID = "packanalytics";
     public static final Logger LOGGER = LogManager.getLogger(MODNAME);
 
+    private ScheduledExecutorService scheduler;
+
     public PackAnalytics(#if NEO IEventBus modEventBus, ModContainer modContainer #endif) {
         #if FORGE
         var context = FMLJavaModLoadingContext.get();
@@ -99,18 +101,37 @@ public class PackAnalytics #if FABRIC implements ModInitializer #endif
         #endif
 
         if (isDedicatedServer()) {
-            ServerLifecycleEvents.SERVER_STOPPING.register((mc) -> sendKeepAliveRequest(true));
+            ServerLifecycleEvents.SERVER_STOPPING.register((mc) -> {
+                sendKeepAliveRequest(true);
+                stopKeepAliveTask();
+            });
         }
         else {
-            ClientLifecycleEvents.CLIENT_STOPPING.register((mc) -> sendKeepAliveRequest(true));
+            ClientLifecycleEvents.CLIENT_STOPPING.register((mc) -> {
+                sendKeepAliveRequest(true);
+                stopKeepAliveTask();
+            });
         }
 
         startKeepAliveTask();
     }
 
     private void startKeepAliveTask() {
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleAtFixedRate(() -> sendKeepAliveRequest(false), 1, AllConfigs.common().updateRate.get(), TimeUnit.MINUTES);
+    }
+
+    private void stopKeepAliveTask() {
+        if (scheduler != null && !scheduler.isShutdown()) {
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+            }
+        }
     }
 
     private void sendKeepAliveRequest(boolean disconnect) {
